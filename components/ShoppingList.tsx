@@ -2,25 +2,23 @@
 
 import { useState, useEffect } from 'react';
 import { ShoppingItem } from '@/lib/types';
-
-interface ManualItem {
-  id: string;
-  name: string;
-  checked: boolean;
-}
-
-interface ManualStore {
-  byCategory: Record<string, ManualItem[]>;
-  extras: ManualItem[];
-}
+import {
+  ManualItem,
+  ManualStore,
+  loadManualStore,
+  addManualItem,
+  toggleManualItem,
+  deleteManualItem,
+  clearExtras,
+  uncheckAllManualItems,
+} from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 
 interface Props {
   items: ShoppingItem[];
   onToggle: (id: string) => void;
   onUncheckAll: () => void;
 }
-
-const STORAGE_KEY = 'meal-planner-manual-items';
 
 const categoryOrder = [
   'Fruit & Veg',
@@ -38,16 +36,6 @@ function genId() {
   return Math.random().toString(36).slice(2);
 }
 
-function loadStore(): ManualStore {
-  if (typeof window === 'undefined') return { byCategory: {}, extras: [] };
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : { byCategory: {}, extras: [] };
-  } catch {
-    return { byCategory: {}, extras: [] };
-  }
-}
-
 export default function ShoppingList({ items, onToggle, onUncheckAll }: Props) {
   const [store, setStore] = useState<ManualStore>({ byCategory: {}, extras: [] });
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
@@ -55,13 +43,26 @@ export default function ShoppingList({ items, onToggle, onUncheckAll }: Props) {
   const [extrasExpanded, setExtrasExpanded] = useState(false);
   const [extrasInput, setExtrasInput] = useState('');
 
+  // Load from Supabase on mount and subscribe to realtime changes
   useEffect(() => {
-    setStore(loadStore());
-  }, []);
+    loadManualStore().then(setStore);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  }, [store]);
+    const sub = supabase
+      .channel('shopping_extras_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shopping_extras' },
+        () => {
+          // Reload the full store on any change (handles add/toggle/delete from other device)
+          loadManualStore().then(setStore);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(sub);
+    };
+  }, []);
 
   // Group meal-plan items by category
   const grouped: Record<string, ShoppingItem[]> = {};
@@ -90,7 +91,9 @@ export default function ShoppingList({ items, onToggle, onUncheckAll }: Props) {
   const totalCount = items.length + allManualCat.length + store.extras.length;
 
   function handleUncheckAll() {
-    onUncheckAll();
+    onUncheckAll(); // unchecks AI shopping items via page.tsx
+    uncheckAllManualItems(); // fire-and-forget, realtime will sync
+    // Optimistic local update
     setStore((prev) => ({
       byCategory: Object.fromEntries(
         Object.entries(prev.byCategory).map(([cat, catItems]) => [
@@ -106,28 +109,37 @@ export default function ShoppingList({ items, onToggle, onUncheckAll }: Props) {
   function addToCat(cat: string) {
     const name = (catInputs[cat] ?? '').trim();
     if (!name) return;
+    const id = genId();
+    // Optimistic local update
     setStore((prev) => ({
       ...prev,
       byCategory: {
         ...prev.byCategory,
-        [cat]: [...(prev.byCategory[cat] ?? []), { id: genId(), name, checked: false }],
+        [cat]: [...(prev.byCategory[cat] ?? []), { id, name, checked: false }],
       },
     }));
     setCatInputs((prev) => ({ ...prev, [cat]: '' }));
     setExpandedCat(null);
+    addManualItem(id, cat, name); // fire-and-forget
   }
 
-  function toggleCatManual(cat: string, id: string) {
+  function toggleCatManual(cat: string, item: ManualItem) {
+    const newChecked = !item.checked;
+    // Optimistic local update
     setStore((prev) => ({
       ...prev,
       byCategory: {
         ...prev.byCategory,
-        [cat]: prev.byCategory[cat].map((i) => (i.id === id ? { ...i, checked: !i.checked } : i)),
+        [cat]: prev.byCategory[cat].map((i) =>
+          i.id === item.id ? { ...i, checked: newChecked } : i,
+        ),
       },
     }));
+    toggleManualItem(item.id, newChecked); // fire-and-forget
   }
 
   function deleteCatManual(cat: string, id: string) {
+    // Optimistic local update
     setStore((prev) => ({
       ...prev,
       byCategory: {
@@ -135,29 +147,43 @@ export default function ShoppingList({ items, onToggle, onUncheckAll }: Props) {
         [cat]: prev.byCategory[cat].filter((i) => i.id !== id),
       },
     }));
+    deleteManualItem(id); // fire-and-forget
   }
 
   // Extras actions
   function addExtra() {
     const name = extrasInput.trim();
     if (!name) return;
+    const id = genId();
+    // Optimistic local update
     setStore((prev) => ({
       ...prev,
-      extras: [...prev.extras, { id: genId(), name, checked: false }],
+      extras: [...prev.extras, { id, name, checked: false }],
     }));
     setExtrasInput('');
     setExtrasExpanded(false);
+    addManualItem(id, null, name); // fire-and-forget
   }
 
-  function toggleExtra(id: string) {
+  function toggleExtra(item: ManualItem) {
+    const newChecked = !item.checked;
+    // Optimistic local update
     setStore((prev) => ({
       ...prev,
-      extras: prev.extras.map((i) => (i.id === id ? { ...i, checked: !i.checked } : i)),
+      extras: prev.extras.map((i) => (i.id === item.id ? { ...i, checked: newChecked } : i)),
     }));
+    toggleManualItem(item.id, newChecked); // fire-and-forget
   }
 
   function deleteExtra(id: string) {
+    // Optimistic local update
     setStore((prev) => ({ ...prev, extras: prev.extras.filter((i) => i.id !== id) }));
+    deleteManualItem(id); // fire-and-forget
+  }
+
+  function handleClearExtras() {
+    setStore((prev) => ({ ...prev, extras: [] }));
+    clearExtras(); // fire-and-forget
   }
 
   return (
@@ -267,7 +293,7 @@ export default function ShoppingList({ items, onToggle, onUncheckAll }: Props) {
                   <input
                     type="checkbox"
                     checked={item.checked}
-                    onChange={() => toggleCatManual(cat, item.id)}
+                    onChange={() => toggleCatManual(cat, item)}
                     className="w-5 h-5 rounded-md accent-emerald-500 cursor-pointer"
                   />
                   <span
@@ -300,9 +326,7 @@ export default function ShoppingList({ items, onToggle, onUncheckAll }: Props) {
           </h3>
           {store.extras.length > 0 && (
             <button
-              onClick={() =>
-                setStore((prev) => ({ ...prev, extras: [] }))
-              }
+              onClick={handleClearExtras}
               className="text-xs text-gray-300 hover:text-red-400 transition-colors"
             >
               Clear all
@@ -357,7 +381,7 @@ export default function ShoppingList({ items, onToggle, onUncheckAll }: Props) {
               <input
                 type="checkbox"
                 checked={item.checked}
-                onChange={() => toggleExtra(item.id)}
+                onChange={() => toggleExtra(item)}
                 className="w-5 h-5 rounded-md accent-emerald-500 cursor-pointer"
               />
               <span

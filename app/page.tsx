@@ -1,8 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, Week, Meal, MealSlot, ShoppingItem, MEAL_SLOTS } from '@/lib/types';
-import { loadState, saveState } from '@/lib/storage';
+import {
+  loadAppState,
+  saveMealPlan,
+  archiveWeekToHistory,
+  upsertShoppingCheck,
+  uncheckAllShoppingItems,
+  clearShoppingChecks,
+} from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 import MealCard from '@/components/MealCard';
 import RecipeModal from '@/components/RecipeModal';
 import ShoppingList from '@/components/ShoppingList';
@@ -45,29 +53,88 @@ export default function Home() {
   const [streamProgress, setStreamProgress] = useState(0);
   const [refreshingSlot, setRefreshingSlot] = useState<MealSlot | null>(null);
 
-  // Hydrate from localStorage once
+  // Refs to guard against stale closures in realtime callbacks
+  const loadingRef = useRef(false);
+  const refreshingSlotRef = useRef<MealSlot | null>(null);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+  useEffect(() => { refreshingSlotRef.current = refreshingSlot; }, [refreshingSlot]);
+
+  // Load from Supabase on mount
   useEffect(() => {
-    setState(loadState());
-    setHydrated(true);
+    loadAppState().then((appState) => {
+      setState(appState);
+      setHydrated(true);
+    });
   }, []);
 
-  // Persist to localStorage whenever state changes
+  // Real-time subscriptions (active once hydrated)
   useEffect(() => {
-    if (hydrated) saveState(state);
-  }, [state, hydrated]);
+    if (!hydrated) return;
+
+    // Shopping item check states — apply each update individually
+    const checksSub = supabase
+      .channel('shopping_checks_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shopping_checks' },
+        (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const { item_id, checked } = payload.new as { item_id: string; checked: boolean };
+            setState((prev) => {
+              if (!prev.currentWeek) return prev;
+              return {
+                ...prev,
+                currentWeek: {
+                  ...prev.currentWeek,
+                  shoppingList: prev.currentWeek.shoppingList.map((item) =>
+                    item.id === item_id ? { ...item, checked } : item,
+                  ),
+                },
+              };
+            });
+          }
+        },
+      )
+      .subscribe();
+
+    // Meal plan updates (new plan generated or meal refreshed on the other device)
+    const planSub = supabase
+      .channel('meal_plan_changes')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'meal_plan' },
+        () => {
+          // Skip if this device is currently generating/refreshing (it will set its own state)
+          if (!loadingRef.current && refreshingSlotRef.current === null) {
+            loadAppState().then(setState);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(checksSub);
+      supabase.removeChannel(planSub);
+    };
+  }, [hydrated]);
 
   const generateWeek = useCallback(async () => {
     setLoading(true);
     setError(null);
     setStreamProgress(0);
 
+    // Capture current values before the async operation
+    const prevWeek = state.currentWeek;
+    const prevCuisineIndex = state.cuisineRotationIndex;
+    const prevHistory = state.history;
+
     try {
       const res = await fetch('/api/generate-week', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          history: state.history,
-          cuisineRotationIndex: state.cuisineRotationIndex,
+          history: prevHistory,
+          cuisineRotationIndex: prevCuisineIndex,
         }),
       });
 
@@ -133,24 +200,29 @@ export default function Home() {
         }),
       );
 
-      const usedIndex = state.cuisineRotationIndex;
+      const newCuisineIndex = (prevCuisineIndex + 1) % 4;
 
       const newWeek: Week = {
         id: generateId(),
-        weekNumber: state.history.length + 1,
+        weekNumber: prevHistory.length + 1,
         generatedAt: new Date().toISOString(),
         meals,
         shoppingList,
         estimatedCost: parsed.estimatedCost ?? '£35–£45',
-        cuisineRotationIndex: usedIndex,
+        cuisineRotationIndex: prevCuisineIndex,
       };
+
+      // Persist to Supabase
+      if (prevWeek) await archiveWeekToHistory(prevWeek);
+      await clearShoppingChecks(); // fresh plan = fresh ticks
+      await saveMealPlan(newWeek, newCuisineIndex);
 
       setState((prev) => ({
         currentWeek: newWeek,
         history: prev.currentWeek
           ? [{ ...prev.currentWeek }, ...prev.history]
           : prev.history,
-        cuisineRotationIndex: (prev.cuisineRotationIndex + 1) % 4,
+        cuisineRotationIndex: newCuisineIndex,
       }));
 
       setTab('meals');
@@ -160,7 +232,7 @@ export default function Home() {
       setLoading(false);
       setStreamProgress(0);
     }
-  }, [state.history, state.cuisineRotationIndex]);
+  }, [state.history, state.cuisineRotationIndex, state.currentWeek]);
 
   const refreshMeal = useCallback(
     async (slot: MealSlot) => {
@@ -183,15 +255,23 @@ export default function Home() {
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const { meal, shoppingList } = await res.json();
 
+        const updatedWeek: Week = {
+          ...state.currentWeek,
+          meals: state.currentWeek.meals.map((m) => (m.slot === slot ? meal : m)),
+          shoppingList,
+        };
+
+        // Shopping list IDs change on refresh, so clear all check states
+        await clearShoppingChecks();
+        await saveMealPlan(updatedWeek, state.cuisineRotationIndex);
+
         setState((prev) => {
           if (!prev.currentWeek) return prev;
           return {
             ...prev,
             currentWeek: {
               ...prev.currentWeek,
-              meals: prev.currentWeek.meals.map((m) =>
-                m.slot === slot ? meal : m,
-              ),
+              meals: prev.currentWeek.meals.map((m) => (m.slot === slot ? meal : m)),
               shoppingList,
             },
           };
@@ -202,18 +282,21 @@ export default function Home() {
         setRefreshingSlot(null);
       }
     },
-    [state.currentWeek, state.history],
+    [state.currentWeek, state.history, state.cuisineRotationIndex],
   );
 
   const toggleItem = useCallback((id: string) => {
     setState((prev) => {
       if (!prev.currentWeek) return prev;
+      const item = prev.currentWeek.shoppingList.find((i) => i.id === id);
+      const newChecked = item ? !item.checked : false;
+      upsertShoppingCheck(id, newChecked); // fire-and-forget, realtime will sync the other device
       return {
         ...prev,
         currentWeek: {
           ...prev.currentWeek,
-          shoppingList: prev.currentWeek.shoppingList.map((item) =>
-            item.id === id ? { ...item, checked: !item.checked } : item,
+          shoppingList: prev.currentWeek.shoppingList.map((i) =>
+            i.id === id ? { ...i, checked: newChecked } : i,
           ),
         },
       };
@@ -221,6 +304,7 @@ export default function Home() {
   }, []);
 
   const uncheckAll = useCallback(() => {
+    uncheckAllShoppingItems(); // fire-and-forget
     setState((prev) => {
       if (!prev.currentWeek) return prev;
       return {
