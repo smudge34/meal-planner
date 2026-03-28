@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --yes)",
+      "Bash(npm install:*)",
+      "Bash(ls /home/colly222/meal-planner/.env*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(find /home/colly222/meal-planner/node_modules/next/dist -name *doc* -type d)",
+      "Bash(grep -r \"web_search\\\\|websearch\\\\|brave_search\\\\|search\" /home/colly222/meal-planner/node_modules/@anthropic-ai/sdk/src/ --include=*.ts -l)",
+      "Bash(find /home/colly222/meal-planner/node_modules/@anthropic-ai/sdk -name *.md)",
+      "Bash(grep -n ToolUnions*= /home/colly222/meal-planner/node_modules/@anthropic-ai/sdk/src/resources/messages/messages.ts)"
+    ]
+  }
+}
