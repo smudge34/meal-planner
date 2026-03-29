@@ -60,8 +60,8 @@ export async function POST(req: NextRequest) {
       const urls = await findRecipeUrls(client, [parsed.meal.name]);
       recipeUrl = urls[parsed.meal.name]?.url ?? null;
       recipeSite = urls[parsed.meal.name]?.site ?? null;
-    } catch {
-      console.log('[refresh-meal] recipe search failed (non-fatal)');
+    } catch (searchErr) {
+      console.log(`[refresh-meal] recipe search failed (non-fatal): ${searchErr instanceof Error ? searchErr.message : String(searchErr)}`);
     }
 
     console.log(

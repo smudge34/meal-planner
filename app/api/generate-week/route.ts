@@ -76,8 +76,8 @@ export async function POST(req: NextRequest) {
                 recipeUrls = await findRecipeUrls(client, mealNames);
               }
             }
-          } catch {
-            console.log('[generate-week] recipe search failed (non-fatal), continuing without URLs');
+          } catch (searchErr) {
+            console.log(`[generate-week] recipe search failed (non-fatal): ${searchErr instanceof Error ? searchErr.message : String(searchErr)}`);
           }
 
           console.log(`[generate-week] recipeUrls returned: ${JSON.stringify(recipeUrls)}`);

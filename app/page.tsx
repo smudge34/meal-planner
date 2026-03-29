@@ -148,6 +148,14 @@ export default function Home() {
     });
   }, []);
 
+  // Log recipe URLs to browser console whenever the current week changes
+  useEffect(() => {
+    if (!state.currentWeek) return;
+    for (const meal of state.currentWeek.meals) {
+      console.log(`[recipeUrl] "${meal.name}" => ${meal.recipeUrl ?? 'null'} (${meal.recipeSite ?? 'no site'})`);
+    }
+  }, [state.currentWeek]);
+
   // Real-time subscriptions (active once hydrated)
   useEffect(() => {
     if (!hydrated) return;
@@ -578,7 +586,7 @@ export default function Home() {
               ).map(({ day, meal, isLeftover, slot, empty }) =>
                 empty ? (
                   <div
-                    key={day}
+                    key={`${slot}-${isLeftover ? 'leftover' : 'fresh'}`}
                     className="w-full bg-gray-50 rounded-2xl border border-dashed border-gray-200 p-4"
                   >
                     <span className="text-xs font-medium text-gray-400 uppercase tracking-wide block mb-0.5">
@@ -588,7 +596,7 @@ export default function Home() {
                   </div>
                 ) : (
                   <MealCard
-                    key={day}
+                    key={`${slot}-${isLeftover ? 'leftover' : 'fresh'}`}
                     meal={meal}
                     day={day}
                     isLeftover={isLeftover}

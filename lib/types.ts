@@ -63,7 +63,7 @@ export interface AppState {
 export const MEAL_SLOTS = [
   { slot: 0, freshDay: 'Sunday',   leftoverDay: 'Monday',    servings: 4, cookTime: 'long'  },
   { slot: 1, freshDay: 'Tuesday',  leftoverDay: 'Wednesday', servings: 4, cookTime: 'quick' },
-  { slot: 2, freshDay: 'Thursday', leftoverDay: 'Friday',    servings: 4, cookTime: 'long'  },
+  { slot: 2, freshDay: 'Thursday', leftoverDay: 'Friday',    servings: 4, cookTime: 'quick' },
   { slot: 3, freshDay: 'Saturday', leftoverDay: null,         servings: 2, cookTime: 'long'  },
 ] as const;
 

@@ -1,14 +1,15 @@
 import { Cuisine, CUISINES, MEAL_SLOTS, Meal, Week } from './types';
 
 const COUPLE_PROFILE = `HOUSEHOLD PROFILE:
-• Adventurous eaters — global cuisines, interesting techniques, less common ingredients all welcome (e.g. shakshuka, bibimbap, tagines, pho, mole, dal, gnocchi, khao soi, berbere, harissa, jerk, rendang)
+• Enjoy a wide range of cuisines — global flavours welcome (e.g. shakshuka, tagines, dal, gnocchi, stir-fries, fajitas, risotto, curries, pasta bakes, burgers, fish tacos, soups)
+• Favour recognisable, achievable home-cook recipes over highly exotic or technically complex dishes — interesting flavours yes, unusual techniques or obscure ingredients no
 • Spice tolerance: medium to hot
 • Eat meat, fish and seafood freely
 • Kitchen equipment: conventional oven, hob, air fryer, slow cooker — suggest recipes that make good use of these
 • STRICT NUT ALLERGY: absolutely no nuts of any kind (peanuts, almonds, cashews, walnuts, pine nuts, pistachios, hazelnuts, etc.)
 • No offal (liver, kidney, heart, tripe)
 • All ingredients available at Aldi UK
-• Target weekly grocery cost: £35–£45`;
+• Target weekly grocery cost: £35–£60`;
 
 const SHOPPING_RULES = `shoppingList must be a consolidated, deduplicated list across all 4 meals with quantities combined where the same ingredient appears in multiple meals. Categories: "Meat & Fish", "Dairy & Eggs", "Fruit & Veg", "Tins & Jars", "Pasta, Rice & Grains", "Sauces & Condiments", "Frozen", "Bakery", "Other".`;
 
@@ -37,7 +38,7 @@ export function buildPrompt(history: Week[], cuisineRotationIndex: number): stri
       : slotDef.freshDay;
     const cookNote =
       slotDef.cookTime === 'quick'
-        ? 'weeknight-friendly (under 60 min total)'
+        ? 'weeknight-friendly (strictly under 60 min total — no complex or multi-step recipes)'
         : 'long cook — vary the method each week (oven roast, braise, curry, tagine, air fryer, slow cooker, etc.)';
     return `  Slot ${slotDef.slot}: ${cuisine} cuisine${vegNote} · serves ${slotDef.servings} · ${days} · ${cookNote}`;
   }).join('\n');
@@ -98,7 +99,8 @@ Rules:
 • servings: slots 0,1,2 → 4; slot 3 → 2
 • freshDay / leftoverDay must exactly match the days in the meal plan above
 • ${SHOPPING_RULES}
-• Long-cook slots must NOT all use slow cooker — vary between oven roast, braise, curry, tagine, air fryer, slow cooker, etc. Use slow cooker for at most one meal per plan`;
+• Long-cook slots must NOT all use slow cooker — vary between oven roast, braise, curry, tagine, air fryer, slow cooker, etc. Use slow cooker for at most one meal per plan
+• Weeknight meals (Tuesday–Friday) MUST be achievable in under 60 minutes total (prep + cook) — no multi-step or technically complex recipes on weekdays`;
 }
 
 export function buildRefreshMealPrompt(
@@ -133,7 +135,7 @@ export function buildRefreshMealPrompt(
     : slotDef.freshDay;
   const cookNote =
     slotDef.cookTime === 'quick'
-      ? 'weeknight-friendly (under 60 min total)'
+      ? 'weeknight-friendly (strictly under 60 min total — no complex or multi-step recipes)'
       : 'long cook — vary the method (oven roast, braise, curry, tagine, air fryer, slow cooker, etc. — avoid slow cooker if it was already used this week)';
   const vegNote = isVeg
     ? '\n⚠️ THIS MEAL MUST BE 100% VEGETARIAN — no meat, no fish, no seafood. Set "isVegetarian": true.'

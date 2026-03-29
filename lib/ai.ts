@@ -10,11 +10,18 @@ export async function findRecipeUrls(
   client: Anthropic,
   mealNames: string[],
 ): Promise<Record<string, { url: string; site: string }>> {
-  const prompt = `Search for a real recipe for each of these meals on trusted UK cooking websites (BBC Good Food, Jamie Oliver, Sainsbury's Magazine, Delicious Magazine, or similar UK sites):
+  const prompt = `For each dish below, use web search to find the closest matching real recipe on any trusted cooking website. The dish names are AI-generated so they may not exist verbatim — find the closest similar recipe.
+
+Dishes:
 ${mealNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
 
-Use web search to find one real recipe URL per meal. Return ONLY valid JSON with no markdown:
-{"meal name": {"url": "https://...", "site": "Site Name"}, ...}`;
+Instructions:
+- Accept any trusted cooking website (BBC Good Food, Jamie Oliver, AllRecipes, Serious Eats, Delicious Magazine, Guardian Food, Food Network, etc.)
+- The recipe name does NOT need to match exactly — find the closest version of the dish
+- Always return results even for approximate matches
+- Return ONLY valid JSON, no prose, no explanations, no markdown. Use the exact dish names as keys:
+{"dish name": {"url": "https://...", "site": "Site Name"}, ...}
+- Include an entry for every dish listed above`;
 
   const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: prompt },
@@ -68,12 +75,27 @@ Use web search to find one real recipe URL per meal. Return ONLY valid JSON with
           const foundKeys = Object.keys(parsed);
           console.log(`[findRecipeUrls] parsed JSON keys: ${JSON.stringify(foundKeys)}`);
           console.log(`[findRecipeUrls] expected meal names: ${JSON.stringify(mealNames)}`);
-          // Log each lookup result so we can see mismatches
+          // Build result with case-insensitive fallback matching so key casing
+          // differences between the AI's JSON keys and the original meal names don't
+          // cause silent misses (e.g. "spaghetti carbonara" vs "Spaghetti Carbonara").
+          const result: Record<string, { url: string; site: string }> = {};
           for (const name of mealNames) {
-            const hit = parsed[name];
-            console.log(`[findRecipeUrls] lookup "${name}" => ${hit ? hit.url : 'NOT FOUND (key mismatch?)'}`);
+            const exact = parsed[name];
+            if (exact) {
+              result[name] = exact;
+              console.log(`[findRecipeUrls] lookup "${name}" => ${exact.url} (exact match)`);
+            } else {
+              const lowerName = name.toLowerCase();
+              const matchKey = foundKeys.find((k) => k.toLowerCase() === lowerName);
+              if (matchKey) {
+                result[name] = parsed[matchKey];
+                console.log(`[findRecipeUrls] lookup "${name}" => ${parsed[matchKey].url} (case-insensitive match on "${matchKey}")`);
+              } else {
+                console.log(`[findRecipeUrls] lookup "${name}" => NOT FOUND (no exact or case-insensitive match in keys: ${JSON.stringify(foundKeys)})`);
+              }
+            }
           }
-          return parsed;
+          return result;
         } catch (e) {
           console.log(`[findRecipeUrls] JSON.parse failed: ${e}`);
           console.log(`[findRecipeUrls] raw match[0]: ${match[0].slice(0, 300)}`);
