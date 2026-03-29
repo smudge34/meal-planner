@@ -102,19 +102,6 @@ export default function RecipeModal({ meal, onClose }: Props) {
           {/* Description */}
           <p className="text-gray-600 text-sm leading-relaxed">{meal.description}</p>
 
-          {/* Original recipe link */}
-          {meal.recipeUrl && (
-            <a
-              href={meal.recipeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
-            >
-              View original recipe on {meal.recipeSite ?? 'external site'} →
-            </a>
-          )}
-
           {/* Ingredients */}
           <section>
             <h3 className="font-semibold text-gray-900 mb-3">Ingredients</h3>
@@ -139,20 +126,22 @@ export default function RecipeModal({ meal, onClose }: Props) {
             </div>
           </section>
 
-          {/* Instructions */}
-          <section>
-            <h3 className="font-semibold text-gray-900 mb-3">Method</h3>
-            <ol className="space-y-3">
-              {meal.recipe.instructions.map((step, i) => (
-                <li key={i} className="flex gap-3 text-sm">
-                  <span className="flex-shrink-0 w-6 h-6 bg-gray-900 text-white rounded-full flex items-center justify-center text-xs font-bold">
-                    {i + 1}
-                  </span>
-                  <span className="text-gray-700 leading-relaxed pt-0.5">{step.replace(/^Step \d+:\s*/i, '')}</span>
-                </li>
-              ))}
-            </ol>
-          </section>
+          {/* Method CTA */}
+          {meal.recipeUrl ? (
+            <a
+              href={meal.recipeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center justify-center gap-2 w-full py-3.5 px-4 bg-gray-900 hover:bg-gray-700 text-white font-semibold rounded-xl transition-colors text-sm"
+            >
+              View full method on {meal.recipeSite ?? 'external site'} →
+            </a>
+          ) : (
+            <p className="text-sm text-gray-500 text-center py-3 px-4 bg-gray-50 rounded-xl">
+              Method not available — search <span className="font-medium text-gray-700">{meal.name}</span> on BBC Good Food
+            </p>
+          )}
         </div>
       </div>
     </div>

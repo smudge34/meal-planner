@@ -11,7 +11,7 @@ export interface Ingredient {
 
 export interface Recipe {
   ingredients: Ingredient[];
-  instructions: string[];
+  instructions?: string[];
   prepTime: number;
   cookTime: number;
 }

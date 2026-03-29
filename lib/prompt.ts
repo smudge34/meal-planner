@@ -76,15 +76,14 @@ OUTPUT: valid JSON only, no markdown, no extra text:
       "isVegetarian": ${exIsVeg},
       "freshDay": "${ex.freshDay}",
       "leftoverDay": ${ex.leftoverDay ? `"${ex.leftoverDay}"` : 'null'},
-      "description": "One sentence description.",
+      "description": "2-3 sentence description of the dish — what it is, key flavours, and why it's worth making.",
       "caloriesPerServing": 550,
       "recipe": {
         "prepTime": 15,
         "cookTime": 120,
         "ingredients": [
           { "name": "chicken thighs", "amount": "600", "unit": "g", "category": "Meat & Fish" }
-        ],
-        "instructions": ["Step 1: ...", "Step 2: ..."]
+        ]
       }
     }
   ],
@@ -163,15 +162,14 @@ Return ONLY valid JSON (no markdown):
     "isVegetarian": ${isVeg},
     "freshDay": "${slotDef.freshDay}",
     "leftoverDay": ${slotDef.leftoverDay ? `"${slotDef.leftoverDay}"` : 'null'},
-    "description": "One sentence description.",
+    "description": "2-3 sentence description of the dish — what it is, key flavours, and why it's worth making.",
     "caloriesPerServing": 550,
     "recipe": {
       "prepTime": 15,
       "cookTime": 60,
       "ingredients": [
         { "name": "ingredient", "amount": "100", "unit": "g", "category": "Meat & Fish" }
-      ],
-      "instructions": ["Step 1: ...", "Step 2: ..."]
+      ]
     }
   },
   "shoppingList": [
