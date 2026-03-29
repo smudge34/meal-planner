@@ -38,7 +38,7 @@ export function buildPrompt(history: Week[], cuisineRotationIndex: number): stri
     const cookNote =
       slotDef.cookTime === 'quick'
         ? 'weeknight-friendly (under 60 min total)'
-        : 'long cook welcome (slow cooker, air fryer, oven roast etc)';
+        : 'long cook — vary the method each week (oven roast, braise, curry, tagine, air fryer, slow cooker, etc.)';
     return `  Slot ${slotDef.slot}: ${cuisine} cuisine${vegNote} · serves ${slotDef.servings} · ${days} · ${cookNote}`;
   }).join('\n');
 
@@ -97,7 +97,8 @@ Rules:
 • isVegetarian MUST be true for slot ${vegSlot} (${vegSlotDef.freshDay}) and false for all others
 • servings: slots 0,1,2 → 4; slot 3 → 2
 • freshDay / leftoverDay must exactly match the days in the meal plan above
-• ${SHOPPING_RULES}`;
+• ${SHOPPING_RULES}
+• Long-cook slots must NOT all use slow cooker — vary between oven roast, braise, curry, tagine, air fryer, slow cooker, etc. Use slow cooker for at most one meal per plan`;
 }
 
 export function buildRefreshMealPrompt(
@@ -133,7 +134,7 @@ export function buildRefreshMealPrompt(
   const cookNote =
     slotDef.cookTime === 'quick'
       ? 'weeknight-friendly (under 60 min total)'
-      : 'long cook welcome (slow cooker, air fryer, oven roast etc)';
+      : 'long cook — vary the method (oven roast, braise, curry, tagine, air fryer, slow cooker, etc. — avoid slow cooker if it was already used this week)';
   const vegNote = isVeg
     ? '\n⚠️ THIS MEAL MUST BE 100% VEGETARIAN — no meat, no fish, no seafood. Set "isVegetarian": true.'
     : '';

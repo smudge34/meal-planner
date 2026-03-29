@@ -45,11 +45,14 @@ Use web search to find one real recipe URL per meal. Return ONLY valid JSON with
     ).length;
     totalSearches += searchesThisCall;
 
+    // Log all content block types so we can see if web search is actually firing
+    const blockTypes = response.content.map((b) => b.type).join(', ');
     console.log(
       `[findRecipeUrls] iter=${iter + 1} apiCalls=${totalApiCalls} ` +
       `searches_this_call=${searchesThisCall} total_searches=${totalSearches} ` +
       `stop_reason=${response.stop_reason} meals=${mealNames.length} ` +
-      `input_tokens=${response.usage.input_tokens} output_tokens=${response.usage.output_tokens}`,
+      `input_tokens=${response.usage.input_tokens} output_tokens=${response.usage.output_tokens} ` +
+      `block_types=[${blockTypes}]`,
     );
 
     if (response.stop_reason === 'end_turn') {
@@ -57,14 +60,27 @@ Use web search to find one real recipe URL per meal. Return ONLY valid JSON with
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
         .map((b) => b.text)
         .join('');
+      console.log(`[findRecipeUrls] raw text response (first 500 chars): ${text.slice(0, 500)}`);
       const match = text.match(/\{[\s\S]*\}/);
       if (match) {
         try {
-          return JSON.parse(match[0]);
-        } catch {
+          const parsed = JSON.parse(match[0]);
+          const foundKeys = Object.keys(parsed);
+          console.log(`[findRecipeUrls] parsed JSON keys: ${JSON.stringify(foundKeys)}`);
+          console.log(`[findRecipeUrls] expected meal names: ${JSON.stringify(mealNames)}`);
+          // Log each lookup result so we can see mismatches
+          for (const name of mealNames) {
+            const hit = parsed[name];
+            console.log(`[findRecipeUrls] lookup "${name}" => ${hit ? hit.url : 'NOT FOUND (key mismatch?)'}`);
+          }
+          return parsed;
+        } catch (e) {
+          console.log(`[findRecipeUrls] JSON.parse failed: ${e}`);
+          console.log(`[findRecipeUrls] raw match[0]: ${match[0].slice(0, 300)}`);
           return {};
         }
       }
+      console.log(`[findRecipeUrls] no JSON object found in text response`);
       return {};
     }
 

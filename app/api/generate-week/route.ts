@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
             console.log('[generate-week] recipe search failed (non-fatal), continuing without URLs');
           }
 
+          console.log(`[generate-week] recipeUrls returned: ${JSON.stringify(recipeUrls)}`);
           console.log(`[generate-week] complete — total API calls: 2, recipe URLs found: ${Object.keys(recipeUrls).length}`);
 
           controller.enqueue(

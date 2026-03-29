@@ -185,12 +185,17 @@ export default function Home() {
       if (!jsonMatch) throw new Error('Could not parse response from AI');
       const parsed = JSON.parse(jsonMatch[0]);
 
-      const meals: Meal[] = parsed.meals.map((m: Partial<Meal> & { name: string }) => ({
-        ...m,
-        id: generateId(),
-        recipeUrl: recipeUrls[m.name]?.url ?? null,
-        recipeSite: recipeUrls[m.name]?.site ?? null,
-      }));
+      console.log('[page] recipeUrls from SSE:', recipeUrls);
+      const meals: Meal[] = parsed.meals.map((m: Partial<Meal> & { name: string }) => {
+        const urlData = recipeUrls[m.name];
+        console.log(`[page] meal "${m.name}" => recipeUrl: ${urlData?.url ?? 'null'}`);
+        return {
+          ...m,
+          id: generateId(),
+          recipeUrl: urlData?.url ?? null,
+          recipeSite: urlData?.site ?? null,
+        };
+      });
 
       const shoppingList: ShoppingItem[] = parsed.shoppingList.map(
         (item: Omit<ShoppingItem, 'id' | 'checked'>) => ({
