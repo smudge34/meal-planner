@@ -11,7 +11,8 @@
       "Bash(find /home/colly222/meal-planner/node_modules/@anthropic-ai/sdk -name *.md)",
       "Bash(grep -n ToolUnions*= /home/colly222/meal-planner/node_modules/@anthropic-ai/sdk/src/resources/messages/messages.ts)",
       "Bash(find /home/colly222/meal-planner -not -path */node_modules/* -not -path */.next/* -not -path */.git/* -type f)",
-      "Bash(ls -lh /home/colly222/meal-planner/public/icon-*.png)"
+      "Bash(ls -lh /home/colly222/meal-planner/public/icon-*.png)",
+      "Bash(node:*)"
     ]
   }
 }

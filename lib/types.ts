@@ -49,6 +49,8 @@ export interface Week {
   shoppingList: ShoppingItem[];
   estimatedCost: string;
   cuisineRotationIndex: number; // index used when this week was generated
+  removedSlots?: MealSlot[];    // entire slot removed (ingredients removed from shopping list)
+  hiddenLeftovers?: MealSlot[]; // just the leftover day hidden, meal + ingredients remain
 }
 
 export interface AppState {

@@ -9,6 +9,9 @@ interface Props {
   isLeftover?: boolean;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  onRemove?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }
 
 const cuisineColors: Record<string, string> = {
@@ -25,6 +28,9 @@ export default function MealCard({
   isLeftover,
   onRefresh,
   isRefreshing,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
 }: Props) {
   const mealDisplayName = meal.name;
 
@@ -43,9 +49,47 @@ export default function MealCard({
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex-1 min-w-0">
           {day && (
-            <span className="text-xs font-medium text-gray-400 uppercase tracking-wide block mb-0.5">
-              {isLeftover ? `${day} (Leftovers)` : day}
-            </span>
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                {isLeftover ? `${day} (Leftovers)` : day}
+              </span>
+              {!isLeftover && (onMoveUp !== undefined || onMoveDown !== undefined) && (
+                <span className="flex gap-0.5">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onMoveUp?.(); }}
+                    disabled={!onMoveUp || isRefreshing}
+                    title="Move earlier in the week"
+                    className="text-gray-300 hover:text-gray-500 transition-colors disabled:opacity-20 disabled:cursor-default"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onMoveDown?.(); }}
+                    disabled={!onMoveDown || isRefreshing}
+                    title="Move later in the week"
+                    className="text-gray-300 hover:text-gray-500 transition-colors disabled:opacity-20 disabled:cursor-default"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </span>
+              )}
+              {onRemove && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                  disabled={isRefreshing}
+                  title="Remove this day"
+                  className="text-gray-300 hover:text-red-400 transition-colors disabled:opacity-40"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
+            </div>
           )}
           <h3 className="font-semibold text-gray-900 text-base leading-snug">
             {isRefreshing ? 'Finding a new recipe…' : mealDisplayName}

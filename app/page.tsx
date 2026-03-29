@@ -18,21 +18,96 @@ import GenerateButton from '@/components/GenerateButton';
 
 type Tab = 'meals' | 'shopping' | 'history';
 
-// Week starts Sunday
-const DAYS_ORDER = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// The leftover day for each slot position (used regardless of which meal sits there).
+// 4-serving meals always get a leftover day; 2-serving meals never do.
+const SLOT_LEFTOVER_DAY: Record<MealSlot, string> = {
+  0: 'Monday',
+  1: 'Wednesday',
+  2: 'Friday',
+  3: 'Sunday', // Saturday meal → Sunday leftover (only reached if a 4-serving meal is reordered here)
+};
 
-function buildSchedule(meals: Meal[]) {
-  const schedule: { day: string; meal: Meal; isLeftover: boolean }[] = [];
-  for (const meal of meals) {
-    // Use MEAL_SLOTS as the canonical source of truth for day names.
-    // The AI sometimes swaps freshDay/leftoverDay, so we never trust those fields.
-    const slotDef = MEAL_SLOTS.find((s) => s.slot === meal.slot);
-    const freshDay = slotDef?.freshDay ?? meal.freshDay;
-    const leftoverDay = slotDef ? slotDef.leftoverDay : meal.leftoverDay;
-    schedule.push({ day: freshDay, meal, isLeftover: false });
-    if (leftoverDay) schedule.push({ day: leftoverDay, meal, isLeftover: true });
+type ScheduleEntry =
+  | { day: string; meal: Meal; isLeftover: boolean; slot: MealSlot; empty: false }
+  | { day: string; meal: null; isLeftover: boolean; slot: MealSlot; empty: true };
+
+function buildSchedule(
+  meals: Meal[],
+  removedSlots: MealSlot[] = [],
+  hiddenLeftovers: MealSlot[] = [],
+): ScheduleEntry[] {
+  const schedule: ScheduleEntry[] = [];
+  for (const slotDef of MEAL_SLOTS) {
+    const slot = slotDef.slot as MealSlot;
+    const meal = meals.find((m) => m.slot === slot) ?? null;
+    const isRemoved = removedSlots.includes(slot);
+
+    // Fresh day
+    schedule.push(
+      isRemoved || !meal
+        ? { day: slotDef.freshDay, meal: null, isLeftover: false, slot, empty: true }
+        : { day: slotDef.freshDay, meal, isLeftover: false, slot, empty: false },
+    );
+
+    // Leftover day — shown only when the meal in this slot has 4+ servings.
+    // This means a 2-serving meal moved into a slot never gains a leftover day,
+    // and a 4-serving meal moved into Saturday (slot 3) gets a Sunday leftover.
+    if (!isRemoved && meal && meal.servings >= 4 && !hiddenLeftovers.includes(slot)) {
+      schedule.push({ day: SLOT_LEFTOVER_DAY[slot], meal, isLeftover: true, slot, empty: false });
+    } else if (!isRemoved && meal && meal.servings >= 4 && hiddenLeftovers.includes(slot)) {
+      // Leftover day explicitly hidden by the user
+      schedule.push({
+        day: SLOT_LEFTOVER_DAY[slot],
+        meal: null,
+        isLeftover: true,
+        slot,
+        empty: true,
+      });
+    }
   }
-  return schedule.sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day));
+  // Sort by slot position then fresh-before-leftover (avoids day-name ambiguity after reorder)
+  return schedule.sort((a, b) => {
+    const aOrder = a.slot * 2 + (a.isLeftover ? 1 : 0);
+    const bOrder = b.slot * 2 + (b.isLeftover ? 1 : 0);
+    return aOrder - bOrder;
+  });
+}
+
+function rebuildShoppingList(remainingMeals: Meal[], existingList: ShoppingItem[]): ShoppingItem[] {
+  const existingByKey = new Map<string, ShoppingItem>();
+  for (const item of existingList) {
+    const key = `${item.name.toLowerCase().trim()}|${(item.unit ?? '').toLowerCase().trim()}|${item.category}`;
+    existingByKey.set(key, item);
+  }
+
+  const consolidated = new Map<
+    string,
+    { id: string; name: string; amount: string; unit: string; category: string; checked: boolean }
+  >();
+
+  for (const meal of remainingMeals) {
+    for (const ing of meal.recipe.ingredients) {
+      const key = `${ing.name.toLowerCase().trim()}|${(ing.unit ?? '').toLowerCase().trim()}|${ing.category}`;
+      const existing = consolidated.get(key);
+      if (existing) {
+        const a = parseFloat(existing.amount);
+        const b = parseFloat(ing.amount);
+        if (!isNaN(a) && !isNaN(b)) existing.amount = String(a + b);
+      } else {
+        const oldItem = existingByKey.get(key);
+        consolidated.set(key, {
+          id: oldItem?.id ?? generateId(),
+          name: ing.name,
+          amount: ing.amount,
+          unit: ing.unit,
+          category: ing.category,
+          checked: oldItem?.checked ?? false,
+        });
+      }
+    }
+  }
+
+  return Array.from(consolidated.values());
 }
 
 function generateId() {
@@ -52,6 +127,12 @@ export default function Home() {
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
   const [streamProgress, setStreamProgress] = useState(0);
   const [refreshingSlot, setRefreshingSlot] = useState<MealSlot | null>(null);
+  const [removeConfirm, setRemoveConfirm] = useState<{
+    day: string;
+    slot: MealSlot;
+    isLeftoverOnly: boolean;
+    affectedDays: string[];
+  } | null>(null);
 
   // Refs to guard against stale closures in realtime callbacks
   const loadingRef = useRef(false);
@@ -325,6 +406,55 @@ export default function Home() {
     });
   }, []);
 
+  const removeDay = useCallback(
+    (slot: MealSlot, isLeftoverOnly: boolean) => {
+      if (!state.currentWeek) return;
+      const week = state.currentWeek;
+      let updatedWeek: Week;
+
+      if (isLeftoverOnly) {
+        updatedWeek = {
+          ...week,
+          hiddenLeftovers: [...(week.hiddenLeftovers ?? []), slot],
+        };
+      } else {
+        const newRemovedSlots = [...(week.removedSlots ?? []), slot];
+        const remainingMeals = week.meals.filter((m) => !newRemovedSlots.includes(m.slot));
+        updatedWeek = {
+          ...week,
+          removedSlots: newRemovedSlots,
+          shoppingList: rebuildShoppingList(remainingMeals, week.shoppingList),
+        };
+      }
+
+      saveMealPlan(updatedWeek, state.cuisineRotationIndex);
+      setState((prev) => ({ ...prev, currentWeek: updatedWeek }));
+      setRemoveConfirm(null);
+    },
+    [state.currentWeek, state.cuisineRotationIndex],
+  );
+
+  const reorderMeal = useCallback(
+    (slot: MealSlot, direction: 'up' | 'down') => {
+      if (!state.currentWeek) return;
+      const slots = MEAL_SLOTS.map((s) => s.slot as MealSlot); // [0, 1, 2, 3]
+      const idx = slots.indexOf(slot);
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= slots.length) return;
+      const targetSlot = slots[targetIdx];
+      const week = state.currentWeek;
+      const updatedMeals = week.meals.map((m) => {
+        if (m.slot === slot) return { ...m, slot: targetSlot };
+        if (m.slot === targetSlot) return { ...m, slot: slot };
+        return m;
+      });
+      const updatedWeek: Week = { ...week, meals: updatedMeals };
+      saveMealPlan(updatedWeek, state.cuisineRotationIndex);
+      setState((prev) => ({ ...prev, currentWeek: updatedWeek }));
+    },
+    [state.currentWeek, state.cuisineRotationIndex],
+  );
+
   if (!hydrated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -338,6 +468,42 @@ export default function Home() {
   return (
     <>
       <RecipeModal meal={selectedMeal} onClose={() => setSelectedMeal(null)} />
+
+      {/* Remove day confirmation */}
+      {removeConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => setRemoveConfirm(null)}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-semibold text-gray-900 mb-2">Remove {removeConfirm.day}?</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              {removeConfirm.isLeftoverOnly
+                ? `This will remove ${removeConfirm.day} from your plan. The fresh-cook day and ingredients stay.`
+                : removeConfirm.affectedDays.length > 1
+                  ? `This will also remove ${removeConfirm.affectedDays.join(' and ')} and their ingredients from your shopping list.`
+                  : `This will also remove the ingredients from your shopping list.`}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setRemoveConfirm(null)}
+                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => removeDay(removeConfirm.slot, removeConfirm.isLeftoverOnly)}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-xl hover:bg-red-600 transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="min-h-screen bg-gray-50">
         {/* Header */}
@@ -405,17 +571,56 @@ export default function Home() {
                   No vegetarian meal this week — generate a new plan to include one.
                 </div>
               )}
-              {buildSchedule(week.meals).map(({ day, meal, isLeftover }, index) => (
-                <MealCard
-                  key={`${day}-${index}`}
-                  meal={meal}
-                  day={day}
-                  isLeftover={isLeftover}
-                  isRefreshing={refreshingSlot === meal.slot}
-                  onOpen={setSelectedMeal}
-                  onRefresh={!isLeftover ? () => refreshMeal(meal.slot as MealSlot) : undefined}
-                />
-              ))}
+              {buildSchedule(
+                week.meals,
+                week.removedSlots ?? [],
+                week.hiddenLeftovers ?? [],
+              ).map(({ day, meal, isLeftover, slot, empty }) =>
+                empty ? (
+                  <div
+                    key={day}
+                    className="w-full bg-gray-50 rounded-2xl border border-dashed border-gray-200 p-4"
+                  >
+                    <span className="text-xs font-medium text-gray-400 uppercase tracking-wide block mb-0.5">
+                      {day}
+                    </span>
+                    <p className="text-sm text-gray-300 italic">No meal planned</p>
+                  </div>
+                ) : (
+                  <MealCard
+                    key={day}
+                    meal={meal}
+                    day={day}
+                    isLeftover={isLeftover}
+                    isRefreshing={refreshingSlot === slot}
+                    onOpen={setSelectedMeal}
+                    onRefresh={!isLeftover ? () => refreshMeal(slot) : undefined}
+                    onRemove={() => {
+                      const slotDef = MEAL_SLOTS.find((s) => s.slot === slot);
+                      if (isLeftover) {
+                        setRemoveConfirm({ day, slot, isLeftoverOnly: true, affectedDays: [day] });
+                      } else {
+                        const freshDay = slotDef?.freshDay as string;
+                        const affectedDays =
+                          meal.servings >= 4
+                            ? [freshDay, SLOT_LEFTOVER_DAY[slot]]
+                            : [freshDay];
+                        setRemoveConfirm({ day, slot, isLeftoverOnly: false, affectedDays });
+                      }
+                    }}
+                    onMoveUp={
+                      !isLeftover && slot > 0
+                        ? () => reorderMeal(slot, 'up')
+                        : undefined
+                    }
+                    onMoveDown={
+                      !isLeftover && slot < (MEAL_SLOTS.length - 1)
+                        ? () => reorderMeal(slot, 'down')
+                        : undefined
+                    }
+                  />
+                ),
+              )}
             </section>
           )}
 
